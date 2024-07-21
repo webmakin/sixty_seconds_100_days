@@ -1,0 +1,19 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	ignorecase = true
+	precomposeunicode = true
+[remote "origin"]
+	url = https://x-token-auth:ATCTT3xFfGN0F39--fprQRabMH1uCQ6UkS5nKMGy_nX1N9ByFPhAYMOh-SAWtyjXf9b-qd9JZZHGkA7ofrglVXRPgt0WQIkcRxvuMYupGIXbjNSuXboc7kGv6Q5UnAK9usr01lBlJYL6jDbQkKtbxJuf25790xRyXFWaTBWmsGH0R7rkEWpGuwI=FDB77031@bitbucket.org/webmakin/sixty_seconds.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main
+	vscode-merge-base = origin/main
+[remote "github"]
+	url = git@github.com:webmakin/sixty_seconds_100_days.git
+	fetch = +refs/heads/*:refs/remotes/github/*
+[lfs]
+	repositoryformatversion = 0
