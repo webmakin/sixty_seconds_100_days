@@ -10,7 +10,10 @@ function love.load()
 
     camera = require 'libraries/camera'
     cam = camera()
-
+    gameState = 1
+    timer = 0
+    
+ 
     anim8 = require 'libraries/anim8'
     love.graphics.setDefaultFilter("nearest", "nearest")
     sti = require 'libraries/sti'
@@ -173,7 +176,10 @@ function love.update(dt)
         cam.y = (mapH - h/2)
     end
     
-end
+    timer = timer + dt    
+    
+end    
+
 
 function drawCollectibles()
     for i,c in ipairs(collectibles) do
@@ -199,5 +205,6 @@ function love.draw()
         player.anim:draw(player.spriteSheet, player.x, player.y, nil, 6, nil, 6, 9)
         world:draw()
     cam:detach()
-    --love.graphics.draw(player.sprite, player.x, player.y)
+    
+   love.graphics.print("Time:" .. string.format("%.2f",  timer), 10, 10 )
 end
