@@ -98,28 +98,36 @@ function love.update(dt)
     local vx = 0
     local vy = 0
     
-    if love.keyboard.isDown("right") then
-       vx = player.speed
-        player.anim = player.animations.right
-        isMoving = true
+    if gameState == 2 then
+        if love.keyboard.isDown("right") then
+        vx = player.speed
+            player.anim = player.animations.right
+            isMoving = true
+        end
+
+        if love.keyboard.isDown("left") then
+            vx = player.speed * -1
+            player.anim = player.animations.left
+            isMoving = true
+        end
+
+        if love.keyboard.isDown("down") then
+            vy = player.speed
+            player.anim = player.animations.down
+            isMoving = true
+        end
+
+        if love.keyboard.isDown("up") then
+            vy = player.speed * -1
+            player.anim = player.animations.up
+            isMoving = true
+        end
     end
 
-    if love.keyboard.isDown("left") then
-        vx = player.speed * -1
-        player.anim = player.animations.left
-        isMoving = true
-    end
-
-    if love.keyboard.isDown("down") then
-        vy = player.speed
-        player.anim = player.animations.down
-        isMoving = true
-    end
-
-    if love.keyboard.isDown("up") then
-        vy = player.speed * -1
-        player.anim = player.animations.up
-        isMoving = true
+    if gameState == 1 then
+        if love.keyboard.isDown("space") then
+           gameState = 2
+        end
     end
 
     player.collider:setLinearVelocity(vx, vy)
@@ -178,7 +186,7 @@ function love.update(dt)
         cam.y = (mapH - h/2)
     end
     
-    if timer > 0 then
+    if timer > 0 and gameState == 2 then
         timer = timer - dt  
     end
 
@@ -209,10 +217,19 @@ function love.draw()
         gameMap:drawLayer(gameMap.layers["Rooms"])
         drawCollectibles()
         --gameMap:drawLayer(gameMap.layers["collectibles"])
-        player.anim:draw(player.spriteSheet, player.x, player.y, nil, 6, nil, 6, 9)
-        world:draw()
+
+        if gameState == 2 then
+            player.anim:draw(player.spriteSheet, player.x, player.y, nil, 6, nil, 6, 9)
+        end
+        --world:draw()
     cam:detach()
     
-    love.graphics.setFont(timerFont) 
-    love.graphics.print("Time left for Apocalypse : " .. string.format("%d",  math.ceil(timer)), 10, 10)
+    if gameState == 2 then
+        love.graphics.setFont(timerFont) 
+        love.graphics.print("Time left for Apocalypse : " .. string.format("%d",  math.ceil(timer)), 10, 10)            
+    else    
+        love.graphics.setFont(timerFont) 
+        love.graphics.print("Press space to start ", love.graphics.getWidth()/3, 10)                 
+    end
+
 end
