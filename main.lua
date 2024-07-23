@@ -11,9 +11,10 @@ function love.load()
     camera = require 'libraries/camera'
     cam = camera()
     gameState = 1
-    timer = 0
     
- 
+    timer = 60
+    timerFont = love.graphics.newFont(25)
+    
     anim8 = require 'libraries/anim8'
     love.graphics.setDefaultFilter("nearest", "nearest")
     sti = require 'libraries/sti'
@@ -176,8 +177,13 @@ function love.update(dt)
         cam.y = (mapH - h/2)
     end
     
-    timer = timer + dt    
-    
+    if timer > 0 then
+        timer = timer - dt  
+    end
+
+    if timer < 0 then
+        timer = 0
+    end
 end    
 
 
@@ -206,5 +212,6 @@ function love.draw()
         world:draw()
     cam:detach()
     
-   love.graphics.print("Time:" .. string.format("%.2f",  timer), 10, 10 )
+    love.graphics.setFont(timerFont) 
+    love.graphics.print("Time left for Apocalypse : " .. string.format("%d",  math.ceil(timer)), 10, 10)
 end
