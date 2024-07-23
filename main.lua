@@ -10,7 +10,8 @@ function love.load()
 
     camera = require 'libraries/camera'
     cam = camera()
-    gameState = 1
+    gameState = 1  --1 is main menu, 2 is game in session
+    timer = 0
     
     timer = 60
     timerFont = love.graphics.newFont(25)
