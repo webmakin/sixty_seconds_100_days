@@ -1,5 +1,6 @@
 function love.load()
-    json = require 'libraries/json'
+    --json = require 'libraries/json'
+    json = require 'libraries/dkjson'
     wf = require 'libraries/windfield'
     world = wf.newWorld(0,0)
 
@@ -12,6 +13,7 @@ function love.load()
     cam = camera()
     gameState = 1  --1 is main menu, 2 is game in session
     timer = 0
+    currentLevel = 1
     
     timer = 60
     timerFont = love.graphics.newFont(25)
@@ -19,15 +21,16 @@ function love.load()
     anim8 = require 'libraries/anim8'
     love.graphics.setDefaultFilter("nearest", "nearest")
     sti = require 'libraries/sti'
-    gameMap = sti('maps/testMap2.lua')
-
-    levels = {}
+    
+    --levels = {}
 
     player = {}
+    playerStartX = 400
+    playerStartY = 200
     player.collider = world:newBSGRectangleCollider(400, 250, 50, 100, 10, {collision_class = "Player"})
     player.collider:setFixedRotation(true)
-    player.x = 400
-    player.y = 200
+    player.x = playerStartX
+    player.y = playerStartY
     player.speed = 300
     player.spriteSheet1 = love.graphics.newImage('sprites/parrot.png')
     player.spriteSheet = love.graphics.newImage('sprites/player-sheet.png')
@@ -40,8 +43,14 @@ function love.load()
     player.animations.up = anim8.newAnimation( player.grid('1-4', 4), 0.2)
     player.anim = player.animations.left
 
-    -- draw wall colliders
     walls = {}
+    doors = {}
+    collectibles = {}
+    loadMap(currentLevel)
+   
+end
+
+function spawnWalls()
     if gameMap.layers["Walls"] then
         for i, obj in pairs(gameMap.layers["Walls"].objects) do
             local wall = world:newRectangleCollider(obj.x, obj.y, obj.width, obj.height, {collision_class = "Walls"})
@@ -49,48 +58,93 @@ function love.load()
             table.insert(walls, wall)
         end
     end
+end
 
-    -- get the collectibles json
-    real_collectibles = {
-                {
-                    name = "crate",
-                    img = "objects_03.png",
-                    hp = 100    
-                },
-                {
-                    name = "barrel",
-                    img = "objects_06.png",
-                    hp = 50    
-                },
-                {
-                    name = "barrel",
-                    img = "objects_37.png",
-                    hp = 80
-                }
-            }
-                
-
-    -- draw collectible colliders
-    collectibles = {}
-    if gameMap.layers["collectibles"] then
-        for i, obj in pairs(gameMap.layers["collectibles"].objects) do
-            local collider = world:newRectangleCollider(obj.x, obj.y, obj.width, obj.height, {collision_class = "Collectibles"})
-            collider:setType('static')
-            local collectible = {}
-            collectible.collider = collider
-            collectible.x = obj.x
-            collectible.y = obj.y
-            if real_collectibles[i] then
-                local img_sheet = love.graphics.newImage('maps/collectibles1/'..real_collectibles[i].img)
-                collectible.img = img_sheet
-            else
-                collectible.img = player.spriteSheet1
-            end
-            table.insert(collectibles, collectible)
+function spawnDoors()
+    if gameMap.layers["doors"] then
+        for i, obj in pairs(gameMap.layers["doors"].objects) do
+            local door = world:newRectangleCollider(obj.x, obj.y, obj.width, obj.height, {collision_class = "Doors"})
+            door:setType('static')
+            table.insert(doors, door)
         end
     end
-   
 end
+
+function spawnCollectibles()
+     -- get the collectibles json
+     local collectibles_file = love.filesystem.read('loaders/collectibles'.. currentLevel ..'.json')
+     real_collectibles = json.decode(collectibles_file)
+
+     if gameMap.layers["collectibles"] then
+         for i, obj in pairs(gameMap.layers["collectibles"].objects) do
+             local collider = world:newRectangleCollider(obj.x, obj.y, obj.width, obj.height, {collision_class = "Collectibles"})
+             collider:setType('static')
+             local collectible = {}
+             collectible.collider = collider
+             collectible.x = obj.x
+             collectible.y = obj.y
+             if real_collectibles[i] then
+                 local img_sheet = love.graphics.newImage('maps/collectibles'.. currentLevel ..'/'..real_collectibles[i].img)
+                 collectible.img = img_sheet
+             else
+                 collectible.img = player.spriteSheet1
+             end
+             table.insert(collectibles, collectible)
+         end
+     end
+end
+
+
+function destroyAll()
+    --remove walls
+    local i = #walls
+    while i > -1 do
+        if walls[i] and walls[i] ~= nil then
+            walls[i]:destroy()
+        end
+        table.remove(walls, i)
+        i = i -1
+    end
+
+    --remove doors
+    local i = #doors
+    while i > -1 do
+        if doors[i] and doors[i] ~= nil then
+            doors[i]:destroy()
+        end
+        table.remove(doors, i)
+        i = i -1
+    end
+
+    -- remove collectibles
+    local i = #collectibles
+    while i > -1 do
+        if collectibles[i] and collectibles[i].collider and collectibles[i].collider.destroy then
+            collectibles[i].collider:destroy()
+        end
+        table.remove(collectibles, i)
+        i = i -1
+    end
+end
+
+function loadMap(level)
+    destroyAll()
+    currentLevel = level
+    gameMap = sti("maps/testMap".. level ..".lua")
+
+    -- draw wall colliders
+    spawnWalls()
+
+    -- draw collectible colliders
+    spawnCollectibles()
+
+    -- draw door colliders
+    spawnDoors()
+
+    --reset player position
+    player.collider:setPosition(playerStartX, playerStartY)
+end
+
 
 function love.update(dt)
     local isMoving = false
@@ -99,8 +153,13 @@ function love.update(dt)
     local vy = 0
     
     if gameState == 2 then
+
+        if love.keyboard.isDown("r") then
+            loadMap(2)
+        end
+
         if love.keyboard.isDown("right") then
-        vx = player.speed
+            vx = player.speed
             player.anim = player.animations.right
             isMoving = true
         end
@@ -124,6 +183,7 @@ function love.update(dt)
         end
     end
 
+    -- if on main menu start the game if space is pressed
     if gameState == 1 then
         if love.keyboard.isDown("space") then
            gameState = 2
@@ -136,7 +196,6 @@ function love.update(dt)
         player.anim:gotoFrame(2)
     end
 
-
     world:update(dt)
     player.x = player.collider:getX()
     player.y = player.collider:getY()
@@ -147,7 +206,7 @@ function love.update(dt)
     --camera attaching the player
     cam:lookAt(player.x, player.y)
 
-    --love.graphics.printf("Collider!", 0, 100, 300, "center")
+    -- if player collects the collectibles
     if  player.collider:enter('Collectibles') then
         for i=#collectibles, 1, -1 do
             local b = collectibles[i]
@@ -158,7 +217,13 @@ function love.update(dt)
         end
     end
 
-     -- This section prevents the camera from viewing outside the background
+    --TODO if player hits the door send to next level
+    if player.collider:enter('Doors') then
+        -- Increase the level and load the next map
+        loadMap(currentLevel + 1)
+    end
+
+    -- This section prevents the camera from viewing outside the background
     -- First, get width/height of the game window
     local w = love.graphics.getWidth()
     local h = love.graphics.getHeight()
@@ -198,9 +263,7 @@ end
 
 function drawCollectibles()
     for i,c in ipairs(collectibles) do
-        --local cx, cy = c:getPosition()
         love.graphics.draw( c.img, c.x, c.y, nil, nil, 1, 50, 65)
-        --c.anim:draw(sprites.enemySheet, ex, ey, nil, e.direction, 1, 50, 65)
     end
 end
 
@@ -209,19 +272,15 @@ function distanceBetween(x1, y1, x2, y2)
 end
 
 function love.draw()
-    --love.graphics.draw(background, 0, 0)
     cam:attach()
-        --gameMap:draw()
         gameMap:drawLayer(gameMap.layers["Ground"])
         gameMap:drawLayer(gameMap.layers["Trees"])
         gameMap:drawLayer(gameMap.layers["Rooms"])
         drawCollectibles()
-        --gameMap:drawLayer(gameMap.layers["collectibles"])
 
         if gameState == 2 then
             player.anim:draw(player.spriteSheet, player.x, player.y, nil, 6, nil, 6, 9)
         end
-        --world:draw()
     cam:detach()
     
     if gameState == 2 then
