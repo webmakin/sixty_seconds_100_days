@@ -1,0 +1,17 @@
+[
+    {
+        "name": "crate",
+        "img": "objects_08.png",
+        "hp": 100
+    },
+    {
+        "name": "barrel",
+        "img": "objects_10.png",
+        "hp": 50
+    },
+    {
+        "name": "barrel",
+        "img": "objects_12.png",
+        "hp": 80
+    }
+]
