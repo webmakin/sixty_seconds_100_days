@@ -43,6 +43,10 @@ function love.load()
     player.animations.up = anim8.newAnimation( player.grid('1-4', 4), 0.2)
     player.anim = player.animations.left
 
+    shake = 0
+    shake_duration = 0
+    shake_intensity = 0
+    
     walls = {}
     doors = {}
     collectibles = {}
@@ -217,7 +221,7 @@ function love.update(dt)
         end
     end
 
-    --TODO if player hits the door send to next level
+    -- If player hits the door send to next level
     if player.collider:enter('Doors') then
         -- Increase the level and load the next map
         loadMap(currentLevel + 1)
@@ -255,9 +259,12 @@ function love.update(dt)
         timer = timer - dt  
     end
 
-    if timer < 0 then
+    if timer <= 0 then
         timer = 0
+        startShake(0.1, 3)
     end
+    updateShake(dt)
+
 end    
 
 
@@ -272,23 +279,62 @@ function distanceBetween(x1, y1, x2, y2)
 end
 
 function love.draw()
-    cam:attach()
-        gameMap:drawLayer(gameMap.layers["Ground"])
-        gameMap:drawLayer(gameMap.layers["Trees"])
-        gameMap:drawLayer(gameMap.layers["Rooms"])
-        drawCollectibles()
-
-        if gameState == 2 then
-            player.anim:draw(player.spriteSheet, player.x, player.y, nil, 6, nil, 6, 9)
-        end
-    cam:detach()
+    -- Apply screen shake
+    local dx, dy = 0, 0
+    if shake > 0 then
+        dx = love.math.random(-shake_intensity, shake_intensity)
+        dy = love.math.random(-shake_intensity, shake_intensity)
+    end
     
+    love.graphics.push()
+    love.graphics.translate(dx, dy)
+
+    cam:attach()
+    -- Check if each layer exists before drawing
+    if gameMap.layers["Ground"] then
+       gameMap:drawLayer(gameMap.layers["Ground"])
+    end
+    if gameMap.layers["Trees"] then
+        gameMap:drawLayer(gameMap.layers["Trees"])
+    end
+    if gameMap.layers["Rooms"] then
+        gameMap:drawLayer(gameMap.layers["Rooms"])
+    end
+    if gameMap.layers["Furniture"] then
+        gameMap:drawLayer(gameMap.layers["Furniture"])
+    end
+    drawCollectibles()
+    if gameState == 2 then
+        player.anim:draw(player.spriteSheet, player.x, player.y, nil, 6, nil, 6, 9)
+    end
+    cam:detach()
+    love.graphics.pop()
+
+    -- Draw UI elements that shouldn't shake
     if gameState == 2 then
         love.graphics.setFont(timerFont) 
-        love.graphics.print("Time left for Apocalypse : " .. string.format("%d",  math.ceil(timer)), 10, 10)            
+        love.graphics.print("Time left for Apocalypse : " .. string.format("%d",  math.ceil(timer)), 10, 10) 
+        -- if math.ceil(timer) == 0 then
+        --     startShake(0.5, 5) 
+        -- end           
     else    
         love.graphics.setFont(timerFont) 
         love.graphics.print("Press space to start ", love.graphics.getWidth()/3, 10)                 
     end
+end
 
+function startShake(duration, intensity)
+    shake = 1
+    shake_duration = duration
+    shake_intensity = intensity
+end
+
+function updateShake(dt)
+    if shake > 0 then
+        shake = shake - dt / shake_duration
+        if shake <= 0 then
+            -- Restart the shake immediately
+            startShake(0.1, 3)
+        end
+    end
 end
