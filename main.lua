@@ -1,3 +1,12 @@
+--------------------------------------------------------------------------------
+-- Quake variables (initialized to avoid nil comparisons)
+--------------------------------------------------------------------------------
+local quakeDuration = 5.0  -- how many seconds the quake effect lasts
+local quakeTimer    = 0    -- current time left of shaking
+local quakeOffsetX  = 0
+local quakeOffsetY  = 0
+
+--------------------------------------------------------------------------------
 function love.load()
     --json = require 'libraries/json'
     json = require 'libraries/dkjson'
@@ -12,10 +21,10 @@ function love.load()
     camera = require 'libraries/camera'
     cam = camera()
     gameState = 1  --1 is main menu, 2 is game in session
-    timer = 0
+    timer = 60     -- Initialize timer to 60 seconds
     currentLevel = 1
+    quakeTimer = 0 -- Make sure quakeTimer starts at 0
     
-    timer = 60
     timerFont = love.graphics.newFont(25)
     
     anim8 = require 'libraries/anim8'
@@ -48,8 +57,11 @@ function love.load()
     collectibles = {}
     loadMap(currentLevel)
    
+    inventory = {}
+    maxInventorySlots = 9
 end
 
+--------------------------------------------------------------------------------
 function spawnWalls()
     if gameMap.layers["Walls"] then
         for i, obj in pairs(gameMap.layers["Walls"].objects) do
@@ -60,6 +72,7 @@ function spawnWalls()
     end
 end
 
+--------------------------------------------------------------------------------
 function spawnDoors()
     if gameMap.layers["doors"] then
         for i, obj in pairs(gameMap.layers["doors"].objects) do
@@ -70,6 +83,7 @@ function spawnDoors()
     end
 end
 
+--------------------------------------------------------------------------------
 function spawnCollectibles()
      -- get the collectibles json
      local collectibles_file = love.filesystem.read('loaders/collectibles'.. currentLevel ..'.json')
@@ -147,116 +161,179 @@ end
 
 
 function love.update(dt)
-    local isMoving = false
-
-    local vx = 0
-    local vy = 0
-    
-    if gameState == 2 then
-
-        if love.keyboard.isDown("r") then
-            loadMap(2)
-        end
-
-        if love.keyboard.isDown("right") then
-            vx = player.speed
-            player.anim = player.animations.right
-            isMoving = true
-        end
-
-        if love.keyboard.isDown("left") then
-            vx = player.speed * -1
-            player.anim = player.animations.left
-            isMoving = true
-        end
-
-        if love.keyboard.isDown("down") then
-            vy = player.speed
-            player.anim = player.animations.down
-            isMoving = true
-        end
-
-        if love.keyboard.isDown("up") then
-            vy = player.speed * -1
-            player.anim = player.animations.up
-            isMoving = true
-        end
-    end
-
-    -- if on main menu start the game if space is pressed
     if gameState == 1 then
         if love.keyboard.isDown("space") then
-           gameState = 2
-        end
-    end
-
-    player.collider:setLinearVelocity(vx, vy)
-
-    if isMoving == false then
-        player.anim:gotoFrame(2)
-    end
-
-    world:update(dt)
-    player.x = player.collider:getX()
-    player.y = player.collider:getY()
-
-    --animations update
-    player.anim:update(dt)
-
-    --camera attaching the player
-    cam:lookAt(player.x, player.y)
-
-    -- if player collects the collectibles
-    if  player.collider:enter('Collectibles') then
-        for i=#collectibles, 1, -1 do
-            local b = collectibles[i]
-            if distanceBetween(b.x, b.y, player.x, player.y) < 100 then
-                table.remove(collectibles, i)
-                b.collider:destroy()
+            -- Reset everything needed for a new game
+            gameState = 2
+            timer = 60
+            quakeTimer = 0
+            
+            -- If player doesn't exist, recreate everything
+            if not player then
+                -- Recreate player
+                player = {}
+                player.collider = world:newBSGRectangleCollider(400, 250, 50, 100, 10, {collision_class = "Player"})
+                player.collider:setFixedRotation(true)
+                player.x = playerStartX
+                player.y = playerStartY
+                player.speed = 300
+                player.spriteSheet1 = love.graphics.newImage('sprites/parrot.png')
+                player.spriteSheet = love.graphics.newImage('sprites/player-sheet.png')
+                player.grid = anim8.newGrid(12, 18, player.spriteSheet:getWidth(), player.spriteSheet:getHeight())
+                
+                player.animations = {}
+                player.animations.down = anim8.newAnimation(player.grid('1-4', 1), 0.2)
+                player.animations.left = anim8.newAnimation(player.grid('1-4', 2), 0.2)
+                player.animations.right = anim8.newAnimation(player.grid('1-4', 3), 0.2)
+                player.animations.up = anim8.newAnimation(player.grid('1-4', 4), 0.2)
+                player.anim = player.animations.left
+                
+                -- Reset level and map
+                currentLevel = 1
+                loadMap(currentLevel)
+                
+                -- Clear inventory
+                inventory = {}
             end
         end
-    end
+    elseif gameState == 2 then
+        -- Only process player-related code if player exists
+        if player then
+            -- Press 'r' to reload some map, for example
+            if love.keyboard.isDown("r") then
+                loadMap(2)
+            end
 
-    --TODO if player hits the door send to next level
-    if player.collider:enter('Doors') then
-        -- Increase the level and load the next map
-        loadMap(currentLevel + 1)
-    end
+            -- 1) Collect the raw direction inputs
+            local dx, dy = 0, 0
+            if love.keyboard.isDown("right") then
+                dx = dx + 1
+            end
+            if love.keyboard.isDown("left") then
+                dx = dx - 1
+            end
+            if love.keyboard.isDown("down") then
+                dy = dy + 1
+            end
+            if love.keyboard.isDown("up") then
+                dy = dy - 1
+            end
 
-    -- This section prevents the camera from viewing outside the background
-    -- First, get width/height of the game window
-    local w = love.graphics.getWidth()
-    local h = love.graphics.getHeight()
+            -- 2) Normalize so diagonal = same speed as straight lines
+            local length = math.sqrt(dx * dx + dy * dy)
+            if length > 0 then
+                dx, dy = dx / length, dy / length
+            end
 
-    -- Left border
-    if cam.x < w/2 then
-        cam.x = w/2
-    end
+            -- 3) Multiply by player speed
+            local vx = dx * player.speed
+            local vy = dy * player.speed
 
-    -- Right border
-    if cam.y < h/2 then
-        cam.y = h/2
-    end
+            -- 4) Set which animation to use based on direction
+            local isMoving = false
+            if dx > 0 then
+                player.anim = player.animations.right
+                isMoving = true
+            elseif dx < 0 then
+                player.anim = player.animations.left
+                isMoving = true
+            elseif dy > 0 then
+                player.anim = player.animations.down
+                isMoving = true
+            elseif dy < 0 then
+                player.anim = player.animations.up
+                isMoving = true
+            end
 
-    -- Get width/height of background
-    local mapW = gameMap.width * gameMap.tilewidth
-    local mapH = gameMap.height * gameMap.tileheight
+            -- If player didn't press any movement keys, hold current frame
+            if not isMoving then
+                player.anim:gotoFrame(2)
+            end
 
-    -- Right border
-    if cam.x > (mapW - w/2) then
-        cam.x = (mapW - w/2)
-    end
-    -- Bottom border
-    if cam.y > (mapH - h/2) then
-        cam.y = (mapH - h/2)
-    end
-    
-    if timer > 0 and gameState == 2 then
-        timer = timer - dt  
-    end
+            -- Apply velocity using the physics library
+            player.collider:setLinearVelocity(vx, vy)
 
-    if timer < 0 then
-        timer = 0
+            -- Update the physics world and get the player's actual position
+            world:update(dt)
+            player.x = player.collider:getX()
+            player.y = player.collider:getY()
+
+            -- Animate player
+            player.anim:update(dt)
+
+            -- Camera follows the player
+            cam:lookAt(player.x, player.y)
+
+            -- if player collects the collectibles
+            if player.collider:enter('Collectibles') then
+                for i = #collectibles, 1, -1 do
+                    local b = collectibles[i]
+                    if distanceBetween(b.x, b.y, player.x, player.y) < 100 then
+                        if #inventory < maxInventorySlots then
+                            table.insert(inventory, b.img)
+                        end
+                        table.remove(collectibles, i)
+                        b.collider:destroy()
+                    end
+                end
+            end
+
+            --TODO if player hits the door send to next level
+            if player.collider:enter('Doors') then
+                -- Increase the level and load the next map
+                loadMap(currentLevel + 1)
+            end
+
+            -- Camera border constraints
+            local w = love.graphics.getWidth()
+            local h = love.graphics.getHeight()
+
+            -- Left border
+            if cam.x < w/2 then
+                cam.x = w/2
+            end
+
+            -- Right border
+            if cam.y < h/2 then
+                cam.y = h/2
+            end
+
+            -- Get width/height of background
+            local mapW = gameMap.width * gameMap.tilewidth
+            local mapH = gameMap.height * gameMap.tileheight
+
+            -- Right border
+            if cam.x > (mapW - w/2) then
+                cam.x = (mapW - w/2)
+            end
+            -- Bottom border
+            if cam.y > (mapH - h/2) then
+                cam.y = (mapH - h/2)
+            end
+        end
+
+        -- Timer and quake logic (outside of player check)
+        if timer > 0 then
+            timer = timer - dt
+            if timer < 0 then  -- Add this check to prevent timer going negative
+                timer = 0
+                quakeTimer = quakeDuration
+            end
+        end
+
+        if quakeTimer > 0 then
+            quakeTimer = quakeTimer - dt
+            if quakeTimer < 0 then
+                quakeTimer = 0
+            end
+        end
+
+        -- Once quakeTimer <= 0, remove the player collider & set player = nil
+        if quakeTimer == 0 and timer == 0 and player then  -- Only destroy player when both timers are 0
+            player.collider:destroy()
+            player = nil
+            gameState = 1  -- Return to main menu
+        end
     end
 end    
 
@@ -271,24 +348,97 @@ function distanceBetween(x1, y1, x2, y2)
     return math.sqrt( (x2 - x1)^2 + (y2 - y1)^2 )
 end
 
+function drawInventory()
+    local slotSize = 50
+    local startX   = 10
+    local startY   = love.graphics.getHeight() - slotSize - 10
+
+    for i = 1, maxInventorySlots do
+        local x = startX + (i - 1) * (slotSize + 5)
+        love.graphics.rectangle("line", x, startY, slotSize, slotSize)
+        love.graphics.print(i, x + slotSize - 10, startY + slotSize - 20)
+
+        if inventory[i] then
+            -- Base scale for normal items (50% of original size).
+            local baseScale = 0.5
+
+            local itemImage = inventory[i]
+            local itemName =
+                (itemImage and itemImage.getFilename and itemImage:getFilename())
+                or ""
+
+            -- Find the image's original width & height.
+            local origW = itemImage:getWidth()
+            local origH = itemImage:getHeight()
+
+            -- Start with your base scale.
+            local finalScaleX, finalScaleY = baseScale, baseScale
+
+            -- For barrels & crates, make them smaller than normal (e.g., 30% of base).
+            if itemName:lower():find("barrel") or itemName:lower():find("crate") then
+                finalScaleX = baseScale * 0.3
+                finalScaleY = baseScale * 0.3
+            end
+
+            -- Center the item in the slot by subtracting half of the final size.
+            local offsetX = (origW * finalScaleX) / 2
+            local offsetY = (origH * finalScaleY) / 2
+
+            -- Draw with the final scale, centered in the slot.
+            love.graphics.draw(
+                itemImage,
+                x + (slotSize / 2),
+                startY + (slotSize / 2),
+                0,               -- rotation
+                finalScaleX,
+                finalScaleY,
+                offsetX,
+                offsetY
+            )
+        end
+    end
+end
+
 function love.draw()
     cam:attach()
+        if quakeTimer > 0 then
+            local quakeStrength = 8
+            quakeOffsetX = love.math.random(-quakeStrength, quakeStrength)
+            quakeOffsetY = love.math.random(-quakeStrength, quakeStrength)
+            love.graphics.translate(quakeOffsetX, quakeOffsetY)
+        else
+            quakeOffsetX, quakeOffsetY = 0, 0
+        end
+
+        -- Draw map layers
         gameMap:drawLayer(gameMap.layers["Ground"])
         gameMap:drawLayer(gameMap.layers["Trees"])
         gameMap:drawLayer(gameMap.layers["Rooms"])
         drawCollectibles()
 
-        if gameState == 2 then
-            player.anim:draw(player.spriteSheet, player.x, player.y, nil, 6, nil, 6, 9)
+        -- Draw player with original offset (6, 9)
+        if player then
+            player.anim:draw(
+                player.spriteSheet,
+                player.x,
+                player.y,
+                nil,
+                6,    -- scale X
+                nil,
+                6,    -- offset X
+                9     -- offset Y
+            )
         end
     cam:detach()
-    
+
+    -- UI
     if gameState == 2 then
-        love.graphics.setFont(timerFont) 
-        love.graphics.print("Time left for Apocalypse : " .. string.format("%d",  math.ceil(timer)), 10, 10)            
-    else    
-        love.graphics.setFont(timerFont) 
-        love.graphics.print("Press space to start ", love.graphics.getWidth()/3, 10)                 
+        love.graphics.setFont(timerFont)
+        love.graphics.print("Time left for Apocalypse: " .. string.format("%.1f", timer), 10, 10)
+    else
+        love.graphics.setFont(timerFont)
+        love.graphics.print("Press space to start", love.graphics.getWidth()/3, 10)
     end
 
+    drawInventory()
 end
