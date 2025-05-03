@@ -1,17 +1,20 @@
 [
     {
-        "name": "crate",
-        "img": "objects_03.png",
-        "hp": 100
+      "img": "redbull_pixel_50px_transparent.png", 
+      "type": "speed_boost", 
+      "value": 1.5, 
+      "duration": 10
     },
     {
-        "name": "barrel",
-        "img": "objects_06.png",
-        "hp": 50
+      "img": "hammer_pixel_50px_transparent.png", 
+      "type": "weapon", 
+      "value": 20, 
+      "duration": 0
     },
     {
-        "name": "barrel",
-        "img": "objects_37.png",
-        "hp": 80
+        "img": "objects_03.png", 
+        "type": "crate", 
+        "value": 20, 
+        "duration": 0
     }
 ]

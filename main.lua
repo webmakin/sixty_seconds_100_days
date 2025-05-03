@@ -15,6 +15,7 @@ function love.load()
 
     world:addCollisionClass('Player'--[[, {ignores = {'Doors'}}]])
     world:addCollisionClass('Walls')
+    world:addCollisionClass('furniture')
     world:addCollisionClass('Doors')
     world:addCollisionClass('Collectibles')
 
@@ -54,11 +55,17 @@ function love.load()
 
     walls = {}
     doors = {}
+    furniture = {}
     collectibles = {}
     loadMap(currentLevel)
    
     inventory = {}
     maxInventorySlots = 9
+
+    player.effects = {}
+    player.effects.speedBoost = {active = false, value = 1, endTime = 0}
+    player.baseSpeed = 300 -- Move original speed here
+    player.speed = player.baseSpeed
 end
 
 --------------------------------------------------------------------------------
@@ -70,6 +77,54 @@ function spawnWalls()
             table.insert(walls, wall)
         end
     end
+end
+
+function spawnFurniture()
+    -- Debug prints to help identify the issue
+    print("Checking for furniture layer...")
+    
+    -- Check for furniture object layer (lowercase)
+    if not gameMap.layers["furniture"] then
+        print("No furniture object layer found!")
+        return
+    end
+    
+    -- Check for objects in furniture layer
+    if not gameMap.layers["furniture"].objects then
+        print("furniture layer exists but has no objects!")
+        return
+    end
+
+    -- If we get here, we can spawn furniture
+    for i, obj in pairs(gameMap.layers["furniture"].objects) do
+        -- Add size validation
+        if obj.width <= 0 or obj.height <= 0 then
+            print(string.format("Warning: Invalid furniture size at x=%d, y=%d (w=%d, h=%d)", 
+                obj.x, obj.y, obj.width, obj.height))
+            goto continue
+        end
+
+        -- Ensure minimum size (Box2D requires objects to have some area)
+        local width = math.max(obj.width, 1)
+        local height = math.max(obj.height, 1)
+
+        local furnitureCollider = world:newRectangleCollider(obj.x, obj.y, width, height, {collision_class = "furniture"})
+        furnitureCollider:setType('static')
+        table.insert(furniture, furnitureCollider)
+        print(string.format("Spawned furniture at: x=%d, y=%d, w=%d, h=%d", 
+            obj.x, obj.y, width, height))
+
+        ::continue::
+    end
+end
+
+-- Helper function to get layer names
+function getLayerNames(layers)
+    local names = {}
+    for name, _ in pairs(layers) do
+        table.insert(names, name)
+    end
+    return names
 end
 
 --------------------------------------------------------------------------------
@@ -85,7 +140,6 @@ end
 
 --------------------------------------------------------------------------------
 function spawnCollectibles()
-     -- get the collectibles json
      local collectibles_file = love.filesystem.read('loaders/collectibles'.. currentLevel ..'.json')
      real_collectibles = json.decode(collectibles_file)
 
@@ -97,12 +151,20 @@ function spawnCollectibles()
              collectible.collider = collider
              collectible.x = obj.x
              collectible.y = obj.y
+             
              if real_collectibles[i] then
                  local img_sheet = love.graphics.newImage('maps/collectibles'.. currentLevel ..'/'..real_collectibles[i].img)
                  collectible.img = img_sheet
+                 -- Store additional properties
+                 collectible.type = real_collectibles[i].type
+                 collectible.value = real_collectibles[i].value
+                 collectible.duration = real_collectibles[i].duration or 0
              else
                  collectible.img = player.spriteSheet1
+                 collectible.type = "default"
+                 collectible.value = 0
              end
+             
              table.insert(collectibles, collectible)
          end
      end
@@ -130,6 +192,18 @@ function destroyAll()
         i = i -1
     end
 
+    -- remove furniture
+    local i = #furniture
+    while i > 0 do  -- Changed from i > -1 to i > 0
+        if furniture[i] then
+            if furniture[i].destroy then
+                furniture[i]:destroy()
+            end
+            table.remove(furniture, i)
+        end
+        i = i - 1
+    end
+
     -- remove collectibles
     local i = #collectibles
     while i > -1 do
@@ -148,6 +222,9 @@ function loadMap(level)
 
     -- draw wall colliders
     spawnWalls()
+
+    -- draw furniture colliders
+    spawnFurniture()
 
     -- draw collectible colliders
     spawnCollectibles()
@@ -270,7 +347,14 @@ function love.update(dt)
                     local b = collectibles[i]
                     if distanceBetween(b.x, b.y, player.x, player.y) < 100 then
                         if #inventory < maxInventorySlots then
-                            table.insert(inventory, b.img)
+                            -- Store the whole item data, not just the image
+                            local item = {
+                                img = b.img,
+                                type = b.type,
+                                value = b.value,
+                                duration = b.duration
+                            }
+                            table.insert(inventory, item)
                         end
                         table.remove(collectibles, i)
                         b.collider:destroy()
@@ -282,6 +366,11 @@ function love.update(dt)
             if player.collider:enter('Doors') then
                 -- Increase the level and load the next map
                 loadMap(currentLevel + 1)
+            end
+
+            -- Update furniture collision check
+            if player.collider:enter('furniture') then
+                print("Hit furniture!")
             end
 
             -- Camera border constraints
@@ -309,6 +398,21 @@ function love.update(dt)
             -- Bottom border
             if cam.y > (mapH - h/2) then
                 cam.y = (mapH - h/2)
+            end
+
+            -- Update effects
+            local currentTime = love.timer.getTime()
+            
+            -- Update speed boost
+            if player.effects.speedBoost.active then
+                if currentTime > player.effects.speedBoost.endTime then
+                    player.effects.speedBoost.active = false
+                    player.effects.speedBoost.value = 1
+                    player.speed = player.baseSpeed
+                    print("Speed boost wore off")
+                else
+                    player.speed = player.baseSpeed * player.effects.speedBoost.value
+                end
             end
         end
 
@@ -362,7 +466,7 @@ function drawInventory()
             -- Base scale for normal items (50% of original size).
             local baseScale = 0.5
 
-            local itemImage = inventory[i]
+            local itemImage = inventory[i].img
             local itemName =
                 (itemImage and itemImage.getFilename and itemImage:getFilename())
                 or ""
@@ -395,12 +499,40 @@ function drawInventory()
                 offsetX,
                 offsetY
             )
+
+            -- Add item type indicator (small text near bottom of slot)
+            local itemType = inventory[i].type or "item"
+            love.graphics.setColor(1, 1, 0, 1) -- Yellow text
+            love.graphics.printf(itemType:sub(1, 5), x, startY + slotSize - 10, slotSize, "center")
+            love.graphics.setColor(1, 1, 1, 1) -- Reset color
         end
     end
 end
 
+function drawDebugColliders()
+    -- Draw furniture colliders in red
+    love.graphics.setColor(1, 0, 0, 0.5)
+    for _, f in ipairs(furniture) do
+        -- Check if the collider still exists and is valid
+        if f and f.getPosition and f.getWidth and f.getHeight then
+            local x, y = f:getPosition()
+            local w, h = f:getWidth(), f:getHeight()
+            love.graphics.rectangle("fill", x - w/2, y - h/2, w, h)
+        end
+    end
+    love.graphics.setColor(1, 1, 1, 1)  -- Reset color
+end
+
 function love.draw()
     cam:attach()
+        -- Add debug print at game start to see available layers
+        -- if gameState == 1 then
+        --     print("Available map layers:")
+        --     for name, layer in pairs(gameMap.layers) do
+        --         print("- " .. name)
+        --     end
+        -- end
+
         if quakeTimer > 0 then
             local quakeStrength = 8
             quakeOffsetX = love.math.random(-quakeStrength, quakeStrength)
@@ -410,13 +542,18 @@ function love.draw()
             quakeOffsetX, quakeOffsetY = 0, 0
         end
 
-        -- Draw map layers
-        gameMap:drawLayer(gameMap.layers["Ground"])
-        gameMap:drawLayer(gameMap.layers["Trees"])
-        gameMap:drawLayer(gameMap.layers["Rooms"])
+        -- Draw map layers with nil check
+        if gameMap.layers["Ground"] then gameMap:drawLayer(gameMap.layers["Ground"]) end
+        if gameMap.layers["Trees"] then gameMap:drawLayer(gameMap.layers["Trees"]) end
+        if gameMap.layers["Rooms"] then gameMap:drawLayer(gameMap.layers["Rooms"]) end
+        -- Draw the Furniture tile layer (capital F)
+        if gameMap.layers["Furniture"] then 
+            gameMap:drawLayer(gameMap.layers["Furniture"])
+        end
+        
         drawCollectibles()
 
-        -- Draw player with original offset (6, 9)
+        -- Draw player
         if player then
             player.anim:draw(
                 player.spriteSheet,
@@ -428,6 +565,11 @@ function love.draw()
                 6,    -- offset X
                 9     -- offset Y
             )
+        end
+
+        -- Add debug drawing for furniture colliders (from lowercase furniture object layer)
+        if gameState == 2 then
+            drawDebugColliders()
         end
     cam:detach()
 
@@ -441,4 +583,33 @@ function love.draw()
     end
 
     drawInventory()
+end
+
+function love.keypressed(key)
+    if gameState == 2 and player then
+        -- Check if a number key 1-9 was pressed
+        local slot = tonumber(key)
+        if slot and slot >= 1 and slot <= 9 then
+            useInventoryItem(slot)
+        end
+    end
+end
+
+function useInventoryItem(slot)
+    local item = inventory[slot]
+    if not item then return end
+    
+    -- Apply effect based on item type
+    if item.type == "speed_boost" then
+        player.effects.speedBoost.active = true
+        player.effects.speedBoost.value = item.value
+        player.effects.speedBoost.endTime = love.timer.getTime() + item.duration
+        print("Used speed boost! New speed: " .. (player.baseSpeed * item.value))
+    elseif item.type == "health" then
+        -- If you add health later
+        print("Used health item, restored: " .. item.value)
+    end
+    
+    -- Remove the used item
+    table.remove(inventory, slot)
 end
